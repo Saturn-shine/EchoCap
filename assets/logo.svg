@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#0E7490"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="0" y="0" width="256" height="256" rx="56.32" ry="56.32" fill="url(#bg)"/>
+
+  <!-- Geometric 'E' letterform -->
+  <g fill="#F0FDFA">
+    <!-- Vertical stem -->
+    <rect x="66.56" y="66.56" width="35.84" height="122.88" rx="12.54" ry="12.54"/>
+
+    <!-- Top bar -->
+    <rect x="66.56" y="66.56" width="122.88" height="33.28" rx="11.65" ry="11.65"/>
+
+    <!-- Middle bar (slightly shorter) -->
+    <rect x="66.56" y="111.36" width="107.52" height="33.28" rx="11.65" ry="11.65"/>
+
+    <!-- Bottom bar -->
+    <rect x="66.56" y="156.16" width="122.88" height="33.28" rx="11.65" ry="11.65"/>
+  </g>
+</svg>

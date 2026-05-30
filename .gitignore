@@ -3,6 +3,8 @@ build/
 Output/
 *.spec
 app_icon.ico
+config.json
+transcripts.txt
 __pycache__/
 *.pyc
 *.pyo
