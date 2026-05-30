@@ -1,0 +1,12 @@
+dist/
+build/
+Output/
+*.spec
+app_icon.ico
+__pycache__/
+*.pyc
+*.pyo
+app.log
+app.log.*
+.vscode/
+
