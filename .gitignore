@@ -2,7 +2,6 @@ dist/
 build/
 Output/
 *.spec
-app_icon.ico
 config.json
 transcripts.txt
 __pycache__/
@@ -11,4 +10,7 @@ __pycache__/
 app.log
 app.log.*
 .vscode/
+.claude/
+build_exe.bat
+installer.iss
 

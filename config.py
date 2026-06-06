@@ -62,7 +62,7 @@ DEFAULT_CONFIG = {
         "pause": "Ctrl+Shift+P",
         "show_hide": "Ctrl+Shift+H",
         "copy": "Ctrl+Shift+C",
-        "toggle_zh": "Ctrl+Shift+T",
+        "toggle_minimal": "Ctrl+Shift+T",
     },
 }
 

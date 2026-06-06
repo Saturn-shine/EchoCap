@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from paths import TRANSCRIPTS_PATH
 from config import DEFAULT_CONFIG, _deep_merge, load_config, save_config
+from vu_meter import VUMeterWidget, VUMeterPollWorker
 
 # Modifier constants for hotkey parsing
 MOD_CTRL = 0x0002
@@ -153,6 +154,13 @@ class AudioTab(QGroupBox):
         self._silence_spin.setValue(cfg["audio"].get("silence_timeout_s", 0.7))
         self._silence_spin.setSuffix(" s")
         layout.addRow("Silence timeout:", self._silence_spin)
+
+        self._vu_meter = VUMeterWidget()
+        layout.addRow("Mic level:", self._vu_meter)
+
+    @property
+    def vu_meter_widget(self):
+        return self._vu_meter
 
     def apply(self, cfg):
         idx = self._device_combo.currentData()
@@ -387,9 +395,9 @@ class HotkeysTab(QGroupBox):
         "pause": "Pause / Resume",
         "show_hide": "Show / Hide window",
         "copy": "Copy to clipboard",
-        "toggle_zh": "Toggle Chinese",
+        "toggle_minimal": "Toggle Minimal Mode",
     }
-    _ACTION_ORDER = ["pause", "show_hide", "copy", "toggle_zh"]
+    _ACTION_ORDER = ["pause", "show_hide", "copy", "toggle_minimal"]
 
     def __init__(self, cfg, parent=None):
         super().__init__("Hotkeys", parent)
@@ -472,12 +480,15 @@ class HotkeysTab(QGroupBox):
 class SettingsDialog(QDialog):
     signal_config_changed = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, pipeline=None, translator=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumSize(520, 440)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
+        self._pipeline = pipeline
+        self._translator = translator
+        self._vu_worker = None
         self._cfg = load_config()
 
         self._tabs = QTabWidget()
@@ -518,6 +529,26 @@ class SettingsDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(self._tabs)
         main_layout.addLayout(btn_layout)
+
+        self._start_vu_meter()
+
+    def _start_vu_meter(self):
+        if self._pipeline:
+            self._vu_worker = VUMeterPollWorker()
+            self._vu_worker.start(self._audio.vu_meter_widget, self._pipeline)
+
+    def _stop_vu_meter(self):
+        if self._vu_worker:
+            self._vu_worker.stop()
+            self._vu_worker = None
+
+    def closeEvent(self, event):
+        self._stop_vu_meter()
+        super().closeEvent(event)
+
+    def reject(self):
+        self._stop_vu_meter()
+        super().reject()
 
     def _gather(self):
         self._audio.apply(self._cfg)

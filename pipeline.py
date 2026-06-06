@@ -110,7 +110,19 @@ class StreamingPipeline:
     def _audio_callback(self, indata, frames, time_info, status):
         if status:
             logger.warning("Audio callback status: %s", status)
-        self._audio_queue.put(indata[:, 0].copy())
+        chunk = indata[:, 0].copy()
+        self._audio_queue.put(chunk)
+        # VU meter RMS
+        rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+        if rms < 1e-9:
+            self._current_rms = 0.0
+        else:
+            db = 20.0 * np.log10(rms)
+            self._current_rms = max(0.0, min(1.0, (db + 60.0) / 60.0))
+
+    @property
+    def current_rms(self) -> float:
+        return getattr(self, '_current_rms', 0.0)
 
     # ------------------------------------------------------------------
     # Processing loop

@@ -39,7 +39,7 @@ class Translator:
     def __init__(self, source="en", target="zh-CN", model_path=None):
         self.source = source
         self.target = target
-        self.model_path = model_path  # local path or None (auto-download)
+        self.model_path = model_path
         self._model = None
         self._tokenizer = None
         self._device = "cpu"

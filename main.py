@@ -15,6 +15,34 @@ import sys
 import threading
 import traceback as _traceback
 
+# ------------------------------------------------------------------
+# CUDA / GPU setup — must run BEFORE any model imports
+# ------------------------------------------------------------------
+def _setup_cuda_dll_paths():
+    """Pre-load NVIDIA GPU libraries so ctranslate2 and PyTorch can use CUDA."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        import site
+        site_packages = site.getsitepackages()
+    except Exception:
+        return
+    try:
+        site_packages.append(site.getusersitepackages())
+    except Exception:
+        pass
+    for sp in site_packages:
+        for sub in ["nvidia/cuda_runtime/bin", "nvidia/cublas/bin"]:
+            d = os.path.join(sp, sub)
+            if os.path.isdir(d):
+                try:
+                    os.add_dll_directory(d)
+                except Exception:
+                    pass
+
+_setup_cuda_dll_paths()
+
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -158,7 +186,7 @@ class App:
         self.hotkeys.signal_pause.connect(lambda: self._on_pause(not self._paused))
         self.hotkeys.signal_show_hide.connect(self._toggle_window_visibility)
         self.hotkeys.signal_copy.connect(self._copy_current_text)
-        self.hotkeys.signal_toggle_zh.connect(self._toggle_zh)
+        self.hotkeys.signal_toggle_minimal.connect(self._toggle_minimal_mode)
 
         # --- Settings dialog ---
         self._settings_dialog = None
@@ -351,10 +379,9 @@ class App:
         if text.strip():
             QApplication.clipboard().setText(text.strip())
 
-    def _toggle_zh(self):
-        self.window._show_zh = not self.window._show_zh
-        self.window._apply_text()
-        save_ui_key("show_zh", self.window._show_zh)
+    def _toggle_minimal_mode(self):
+        enabled = not self.window._minimal_mode
+        self.window._set_minimal(enabled)
 
     def _set_click_through(self, enabled):
         self.window._click_through = enabled
@@ -367,7 +394,10 @@ class App:
             self._settings_dialog.signal_config_changed.disconnect(self._on_config_changed)
             self._settings_dialog.deleteLater()
             self._settings_dialog = None
-        self._settings_dialog = SettingsDialog()
+        self._settings_dialog = SettingsDialog(
+            pipeline=self.pipeline if hasattr(self, 'pipeline') else None,
+            translator=self.translator if hasattr(self, 'translator') else None,
+        )
         self._settings_dialog.signal_config_changed.connect(self._on_config_changed)
         self._settings_dialog.show()
         self._settings_dialog.raise_()

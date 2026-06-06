@@ -87,7 +87,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
-首次运行会自动从 HuggingFace 下载模型（~1.5GB）。国内网络不稳定可在设置中启用 HF 镜像。
+> ⚠️ **此方式不适用于 Release 安装包**。安装包已内置模型，直接可用。
+>
+> 从源码运行时，程序会在首次启动时**自动下载所需模型**（共约 800 MB）：
+
+| 模型 | 用途 | 大小 | 存放位置 |
+|------|------|------|---------|
+| `faster-whisper-small` | 语音识别 (ASR) | ~487 MB | `dist/models/whisper-small/` |
+| `opus-mt-en-zh` | 英→中翻译 | ~312 MB | `dist/models/opus-mt-en-zh/` |
+
+**自动下载逻辑**：程序启动时会检查 `config.json` 中配置的模型路径，如果目录不存在或缺少模型文件，会自动调用 `_auto_detect_models()` 尝试从 `dist/models/` 下查找模型。如果本地找不到，HuggingFace Transformers 会自动联网下载到缓存目录。
+
+**加速下载（中国大陆用户）**：在设置 → ASR → HF endpoint 中填入 `https://hf-mirror.com` 即可使用镜像加速，无需科学上网。
+
+**手动放置模型**：如果网络环境不允许下载，你也可以从其他机器复制模型文件夹到 `dist/models/` 下，程序会自动检测。
 
 ## ✨ 功能一览
 
