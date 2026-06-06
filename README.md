@@ -264,10 +264,6 @@ EchoCap 本体使用 **MIT** 许可证。
 4. 推送分支 (`git push origin feat/amazing`)
 5. 提交 Pull Request
 
-## ⭐ 星标历史
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Saturn-shine/EchoCap&type=Date)](https://star-history.com/#Saturn-shine/EchoCap&Date)
-
 ## 🙏 致谢
 
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2 加速的 Whisper 推理
@@ -339,7 +335,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
-On first run, models download automatically from HuggingFace (~1.5 GB). Set the HF mirror in Settings if your network is unstable.
+> ⚠️ **Not applicable to the Release installer.** The installer bundles models — works offline out of the box.
+>
+> When running from source, models are **auto-downloaded** on first launch (~800 MB total):
+
+| Model | Purpose | Size | Location |
+|-------|---------|------|----------|
+| `faster-whisper-small` | Speech recognition (ASR) | ~487 MB | `dist/models/whisper-small/` |
+| `opus-mt-en-zh` | EN→ZH translation | ~312 MB | `dist/models/opus-mt-en-zh/` |
+
+**How it works**: On startup, `_auto_detect_models()` checks if model files exist under `dist/models/`. If not found, HuggingFace Transformers downloads them automatically to its cache.
+
+**For users in China**: Go to Settings → ASR → HF endpoint and set `https://hf-mirror.com` for faster downloads without a VPN.
+
+**Manual setup**: If your network cannot reach HuggingFace, copy the model folders from another machine into `dist/models/` — the app will detect them automatically.
 
 ## ✨ Features
 
@@ -502,10 +511,6 @@ Issues and PRs welcome!
 3. Commit changes (`git commit -m "Add amazing feature"`)
 4. Push (`git push origin feat/amazing-feature`)
 5. Open a Pull Request
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Saturn-shine/EchoCap&type=Date)](https://star-history.com/#Saturn-shine/EchoCap&Date)
 
 ## 🙏 Acknowledgments
 
