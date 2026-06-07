@@ -13,4 +13,8 @@ app.log.*
 .claude/
 build_exe.bat
 installer.iss
-
+prepare_models.py
+VERSION
+_build_torch/
+_backup*/
+*.pyd

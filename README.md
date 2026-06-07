@@ -47,7 +47,7 @@
 - ✅ **GPU 加速**：ctranslate2 + CUDA，RTX 3060 上延迟 <200ms
 - ✅ **直播神器**：搭配虚拟声卡（VB-Cable / Voicemeeter），捕获系统音频实现 <300ms 端到端延迟的实时双语直播字幕
 - ✅ **透明悬浮窗**：PyQt6 无边框窗口，置顶 + 穿透模式，不挡内容
-- ✅ **即装即用**：安装包里塞了模型（~1.5GB），装完打开就说话
+- ✅ **即装即用**：安装包 ~581MB，首次启动自动下载模型（~800MB，仅需一次）
 - ✅ **创作友好**：OBS 绿幕抠像、SRT 字幕导出、全局快捷键
 
 > 💡 *简单说：把 OpenAI Whisper 的精度和 MarianMT 的翻译塞进一个 Windows 安装包，双击即用。*
@@ -76,7 +76,7 @@
 
 从 [**GitHub Releases**](https://github.com/Saturn-shine/EchoCap/releases) 下载 `EchoCap_Setup.exe` → 双击安装 → 打开即用。
 
-模型已内置，无需联网下载。
+首次启动弹出**模型设置向导**，可选择自动下载（国内走 ModelScope CDN，无需 VPN）或手动选择已有模型目录。
 
 ### 方式二：从源码运行
 
@@ -106,8 +106,9 @@ python main.py
 
 | 功能 | 说明 |
 |------|------|
-| 🎙️ **实时语音识别** | 基于 faster-whisper，CTranslate2 + CUDA GPU 加速，ASR 延迟 <200ms |
+| 🎙️ **实时语音识别** | 基于 faster-whisper，CTranslate2 + CUDA GPU 加速，ASR 延迟 <100ms |
 | 🌐 **实时英译中** | Helsinki-NLP/opus-mt-en-zh 离线翻译模型 |
+| 🎛️ **VU 音量表** | 设置中实时麦克风电平指示（绿/黄/红） |
 | 🔌 **虚拟声卡兼容** | 搭配 VB-Cable / Voicemeeter 捕获系统音频，端到端延迟 <300ms |
 | 🪟 **透明悬浮窗** | 始终置顶、无边框、可拖拽、可缩放 |
 | 🖱️ **穿透模式** | 鼠标点击透过字幕窗口，不干扰其他操作 |
@@ -149,7 +150,7 @@ flowchart LR
 | `Ctrl + Shift + P` | 暂停 / 继续 |
 | `Ctrl + Shift + H` | 显示 / 隐藏窗口 |
 | `Ctrl + Shift + C` | 复制当前字幕到剪贴板 |
-| `Ctrl + Shift + T` | 切换中文翻译显示 |
+| `Ctrl + Shift + T` | 切换极简模式 |
 
 > 💡 所有快捷键可在 **设置 → 快捷键** 中自定义。
 
@@ -203,20 +204,18 @@ EchoCap/
 ├── pipeline.py           # 流式 ASR + 翻译处理管线
 ├── asr_engine.py         # faster-whisper 封装（auto 设备/精度回退）
 ├── translator.py         # MarianMT 翻译封装
-├── hotkeys.py            # Windows 全局热键（RegisterHotKey）
+├── hotkeys.py            # 全局热键（WH_KEYBOARD_LL 钩子 + Win32 回退）
 ├── settings_dialog.py    # 设置对话框（5 个标签页）
 ├── tray_icon.py          # 系统托盘图标与菜单
-├── app_icon.py           # 程序化麦克风图标
+├── app_icon.py           # 图标加载（assets/logo.svg → app_icon.ico）
+├── vu_meter.py           # VU 音量表组件
 ├── about_dialog.py       # 关于对话框 + 模型署名
 ├── export_srt.py         # 字幕 → SRT 转换器
 ├── update_checker.py     # GitHub Release 版本检查
 ├── config.py             # 配置 I/O + 默认值 + 自动修复
 ├── paths.py              # 跨平台路径解析（frozen ↔ dev）
 ├── logging_config.py     # 日志配置
-├── prepare_models.py     # 模型瘦身脚本（构建用）
 ├── hooks/                # PyInstaller 自定义钩子
-├── build_exe.bat         # 一键构建脚本
-├── installer.iss         # Inno Setup 安装脚本
 ├── EchoCap.spec          # PyInstaller spec
 ├── requirements.txt      # Python 依赖
 └── VERSION               # 版本号
@@ -226,12 +225,7 @@ EchoCap/
 
 ```bash
 # 前置：PyInstaller + Inno Setup 6
-# 一键构建：
-build_exe.bat
-
-# 或分步：
-pyinstaller --clean EchoCap.spec    # → dist/EchoCap.exe
-python prepare_models.py            # → dist/models/
+pyinstaller --clean EchoCap.spec    # → dist/EchoCap/
 iscc installer.iss                  # → Output/EchoCap_Setup.exe
 ```
 
@@ -268,6 +262,7 @@ EchoCap 本体使用 **MIT** 许可证。
 
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2 加速的 Whisper 推理
 - [Helsinki-NLP](https://huggingface.co/Helsinki-NLP) — 开源神经机器翻译模型
+- [ModelScope](https://www.modelscope.cn) — 国内模型下载加速
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — Python Qt 绑定
 - [sounddevice](https://python-sounddevice.readthedocs.io/) — PortAudio Python 封装
 
@@ -295,7 +290,7 @@ The market has no shortage of caption tools. The problem:
 - ✅ **GPU Accelerated** — CTranslate2 + CUDA. <200ms latency on RTX 3060
 - ✅ **Live Streaming Beast** — Pair with a virtual audio cable (VB-Cable / Voicemeeter) for sub-300ms end-to-end bilingual captions on stream
 - ✅ **Transparent Overlay** — PyQt6 frameless window, always-on-top with click-through
-- ✅ **Batteries Included** — Models bundled in the installer (~1.5 GB). Install → Speak
+- ✅ **Batteries Included** — Installer ~581MB. First launch downloads models (~800MB, one-time) via ModelScope CDN
 - ✅ **Creator-Ready** — OBS chroma key, SRT export, global hotkeys
 
 > 💡 *Think of it as OpenAI Whisper + MarianMT, shrink-wrapped into a single Windows installer.*
@@ -324,7 +319,7 @@ The market has no shortage of caption tools. The problem:
 
 Download `EchoCap_Setup.exe` from [**GitHub Releases**](https://github.com/Saturn-shine/EchoCap/releases) → double-click → done.
 
-Models are bundled — no download needed on first launch.
+First launch shows a **model setup wizard** — auto-download (~800MB, one-time via ModelScope CDN) or browse existing model files.
 
 ### Option 2: Run from Source
 
@@ -354,8 +349,9 @@ python main.py
 
 | Feature | Description |
 |---------|-------------|
-| 🎙️ **Real-time ASR** | faster-whisper with CTranslate2 + CUDA GPU acceleration, <200ms ASR latency |
+| 🎙️ **Real-time ASR** | faster-whisper with CTranslate2 + CUDA GPU acceleration, <100ms ASR latency |
 | 🌐 **EN→ZH Translation** | Helsinki-NLP/opus-mt-en-zh, fully offline |
+| 🎛️ **VU Meter** | Real-time mic level indicator in Settings (green/yellow/red) |
 | 🔌 **Virtual Audio Cable** | Capture system audio via VB-Cable / Voicemeeter, <300ms end-to-end |
 | 🪟 **Transparent Overlay** | Always-on-top, frameless, draggable, resizable |
 | 🖱️ **Click-through Mode** | Mouse passes through the overlay, no interference |
@@ -397,7 +393,7 @@ flowchart LR
 | `Ctrl + Shift + P` | Pause / Resume |
 | `Ctrl + Shift + H` | Show / Hide overlay |
 | `Ctrl + Shift + C` | Copy caption to clipboard |
-| `Ctrl + Shift + T` | Toggle Chinese translation |
+| `Ctrl + Shift + T` | Toggle Minimal Mode |
 
 > 💡 All hotkeys are customizable in **Settings → Hotkeys**.
 
@@ -451,20 +447,18 @@ EchoCap/
 ├── pipeline.py           # Streaming ASR + translation pipeline
 ├── asr_engine.py         # faster-whisper wrapper (auto device/precision fallback)
 ├── translator.py         # MarianMT translation wrapper
-├── hotkeys.py            # Global hotkeys (Win32 RegisterHotKey)
+├── hotkeys.py            # Global hotkeys (WH_KEYBOARD_LL hook + Win32 fallback)
 ├── settings_dialog.py    # Settings dialog (5 tabs)
 ├── tray_icon.py          # System tray icon & menu
-├── app_icon.py           # Programmatic microphone icon
+├── app_icon.py           # Icon loader (assets/logo.svg → app_icon.ico)
+├── vu_meter.py           # VU meter widget
 ├── about_dialog.py       # About dialog + model attribution
 ├── export_srt.py         # Caption → SRT converter
 ├── update_checker.py     # GitHub Release version checker
 ├── config.py             # Config I/O + defaults + auto-repair
 ├── paths.py              # Cross-platform path resolution (frozen ↔ dev)
 ├── logging_config.py     # Logging setup
-├── prepare_models.py     # Model trimmer (build tool)
 ├── hooks/                # PyInstaller custom hooks
-├── build_exe.bat         # One-click build script
-├── installer.iss         # Inno Setup installer script
 ├── EchoCap.spec          # PyInstaller spec
 ├── requirements.txt      # Python dependencies
 └── VERSION               # Version file
@@ -474,12 +468,7 @@ EchoCap/
 
 ```bash
 # Prerequisites: PyInstaller + Inno Setup 6
-# One-click:
-build_exe.bat
-
-# Or step-by-step:
-pyinstaller --clean EchoCap.spec    # → dist/EchoCap.exe
-python prepare_models.py            # → dist/models/
+pyinstaller --clean EchoCap.spec    # → dist/EchoCap/
 iscc installer.iss                  # → Output/EchoCap_Setup.exe
 ```
 
@@ -516,6 +505,7 @@ Issues and PRs welcome!
 
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — CTranslate2-accelerated Whisper inference
 - [Helsinki-NLP](https://huggingface.co/Helsinki-NLP) — Open-source neural machine translation
+- [ModelScope](https://www.modelscope.cn) — Model CDN for China mainland users
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — Python Qt bindings
 - [sounddevice](https://python-sounddevice.readthedocs.io/) — PortAudio Python wrapper
 

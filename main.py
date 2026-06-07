@@ -19,31 +19,55 @@ import traceback as _traceback
 # CUDA / GPU setup — must run BEFORE any model imports
 # ------------------------------------------------------------------
 def _setup_cuda_dll_paths():
-    """Pre-load NVIDIA GPU libraries so ctranslate2 and PyTorch can use CUDA."""
+    """Pre-load NVIDIA GPU libraries so ctranslate2 can use CUDA."""
     if sys.platform != "win32":
         return
+    nvidia_dirs = []
+    # 1. Bundled DLLs inside frozen app (onedir: _internal/ next to exe)
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        nvidia_dirs.append(exe_dir)
+        nvidia_dirs.append(os.path.join(exe_dir, '_internal'))
+    # 2. pip-installed nvidia packages (dev mode)
     try:
-        import ctypes
         import site
-        site_packages = site.getsitepackages()
-    except Exception:
-        return
-    try:
-        site_packages.append(site.getusersitepackages())
+        for sp in site.getsitepackages():
+            nvidia_dirs.append(sp)
+        nvidia_dirs.append(site.getusersitepackages())
     except Exception:
         pass
-    for sp in site_packages:
-        for sub in ["nvidia/cuda_runtime/bin", "nvidia/cublas/bin"]:
+    # 3. Common CUDA install paths
+    for p in [os.environ.get("CUDA_PATH", ""),
+              r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA"]:
+        if p and os.path.isdir(p):
+            nvidia_dirs.append(p)
+    found_dlls = []
+    for sp in nvidia_dirs:
+        for sub in ["nvidia/cublas/bin", "nvidia/cuda_runtime/bin", "bin"]:
             d = os.path.join(sp, sub)
             if os.path.isdir(d):
                 try:
                     os.add_dll_directory(d)
                 except Exception:
                     pass
+                for fn in sorted(os.listdir(d)):
+                    if fn.endswith('.dll'):
+                        found_dlls.append(os.path.join(d, fn))
+    # Pre-load DLLs explicitly — ensures they're in process memory
+    # before ctranslate2 tries to lazy-load them.
+    try:
+        import ctypes
+        for dll_path in found_dlls:
+            try:
+                ctypes.CDLL(dll_path)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 _setup_cuda_dll_paths()
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from asr_engine import ASREngine
@@ -166,6 +190,11 @@ class App:
         self._text_queue = queue.Queue()
         self.window.set_text_queue(self._text_queue)
 
+        # History queue: pipeline -> history panel
+        self._history_queue = queue.Queue()
+        if hasattr(self.window, 'set_history_queue'):
+            self.window.set_history_queue(self._history_queue)
+
         # Wire tray -> app
         self.tray.signal_pause.connect(self._on_pause)
         self.tray.signal_show_window.connect(self._show_window)
@@ -195,11 +224,71 @@ class App:
         self._paused = False
         self.tray.set_click_through(self.cfg["ui"].get("click_through", False))
 
-        # --- Load ASR model ---
+        # --- Check models BEFORE attempting to load ---
+        asr_ok, tr_ok = self._check_models()
+        if asr_ok and tr_ok:
+            self._load_models_and_start()
+        else:
+            self.window.show_text(
+                "Models not found.\nClick the overlay or tray icon to set up models.", "")
+            # Model setup wizard will be shown via tray/settings
+            self.asr = None
+            self.translator = None
+            QTimer.singleShot(300, self._show_model_setup_wizard)
+
+        # Apply auto-start on initial launch
+        _apply_auto_start(self.cfg["ui"].get("auto_start", False))
+
+    # ------------------------------------------------------------------
+    # Model checking & setup wizard
+    # ------------------------------------------------------------------
+
+    def _check_models(self):
+        """Return (asr_ok, translator_ok) — True if model files exist locally."""
+        # 1. Check ASR model
+        asr_path = self.cfg["asr"].get("model_size", "")
+        asr_dirs = [asr_path] if asr_path else []
+        default_asr = os.path.join(BASE_DIR, "dist", "models", "whisper-small")
+        asr_dirs.append(default_asr)
+        asr_ok = False
+        for d in asr_dirs:
+            if d and os.path.isdir(d) and os.path.isfile(os.path.join(d, "model.bin")):
+                self.cfg["asr"]["model_size"] = d
+                asr_ok = True
+                break
+
+        # 2. Check translation model
+        tr_path = self.cfg["translate"].get("model_path", "")
+        tr_ok = False
+        # Try: model_path itself, model_path/opus-mt-en-zh, dist/models, dist/models/opus-mt-en-zh
+        for candidate in self._get_translator_search_paths(tr_path):
+            if os.path.isdir(candidate) and (
+                os.path.isfile(os.path.join(candidate, "pytorch_model.bin")) or
+                os.path.isfile(os.path.join(candidate, "model.safetensors"))
+            ):
+                self.cfg["translate"]["model_path"] = candidate
+                tr_ok = True
+                break
+
+        if asr_ok and tr_ok:
+            save_config(self.cfg)
+        return asr_ok, tr_ok
+
+    def _get_translator_search_paths(self, tr_path):
+        """Generate candidate directories to search for the translation model."""
+        paths = []
+        if tr_path:
+            paths.append(tr_path)
+            paths.append(os.path.join(tr_path, "opus-mt-en-zh"))
+        paths.append(os.path.join(BASE_DIR, "dist", "models", "opus-mt-en-zh"))
+        paths.append(os.path.join(BASE_DIR, "dist", "models"))
+        return paths
+
+    def _load_models_and_start(self):
+        """Load ASR + translator models and start the streaming pipeline."""
+        asr_cfg = self.cfg["asr"]
         self.window.show_text("Loading ASR model...", "")
         QApplication.processEvents()
-
-        asr_cfg = self.cfg["asr"]
         self.asr = ASREngine(
             model_size=asr_cfg["model_size"],
             device=asr_cfg["device"],
@@ -207,11 +296,9 @@ class App:
         )
         self.asr.load()
 
-        # --- Load translator ---
+        tr_cfg = self.cfg["translate"]
         self.window.show_text("Loading translator...", "")
         QApplication.processEvents()
-
-        tr_cfg = self.cfg["translate"]
         self.translator = Translator(
             source=tr_cfg["source"],
             target=tr_cfg["target"],
@@ -219,11 +306,6 @@ class App:
         )
         self.translator.load()
 
-        # Clear loading message
-        self.window.show_text("", "")
-        self.window._start_fade_out()
-
-        # --- Start streaming pipeline ---
         audio_cfg = self.cfg["audio"]
         self.pipeline = StreamingPipeline(
             self.asr, self.translator, self.window,
@@ -237,9 +319,303 @@ class App:
             device=audio_cfg.get("device"),
             text_queue=self._text_queue,
         )
+        # Show "Ready!" for 5 seconds
+        self.window.show_text("Ready!", "")
+        QTimer.singleShot(5000, lambda: self.window._start_fade_out())
 
-        # Apply auto-start on initial launch
-        _apply_auto_start(self.cfg["ui"].get("auto_start", False))
+    def _show_model_setup_wizard(self):
+        """Show a proper dialog to download or locate model files."""
+        from PyQt6.QtCore import QThread, pyqtSignal as _pyqtSignal
+        from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+                                      QPushButton, QLineEdit, QProgressBar,
+                                      QFileDialog, QMessageBox)
+
+        dlg = QDialog(self.window)
+        dlg.setWindowTitle("EchoCap Model Setup")
+        dlg.setMinimumWidth(520)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+
+        # --- Info ---
+        layout.addWidget(QLabel(
+            "EchoCap needs two AI models (~800 MB total):\n"
+            "  • faster-whisper-small  (speech, ~487 MB)\n"
+            "  • opus-mt-en-zh         (translation, ~312 MB)\n\n"
+            "They download once, then work offline forever."))
+
+        # --- Download folder row ---
+        dl_row = QHBoxLayout()
+        dl_row.addWidget(QLabel("Save to:"))
+        default_dir = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")), "EchoCap", "models")
+        dl_edit = QLineEdit(default_dir)
+        dl_edit.setMinimumWidth(280)
+        dl_row.addWidget(dl_edit)
+        browse_btn = QPushButton("...")
+        browse_btn.setFixedWidth(30)
+        def _pick_dir():
+            d = QFileDialog.getExistingDirectory(dlg, "Select download folder")
+            if d: dl_edit.setText(d)
+        browse_btn.clicked.connect(_pick_dir)
+        dl_row.addWidget(browse_btn)
+        layout.addLayout(dl_row)
+
+        # --- Progress ---
+        progress = QProgressBar()
+        progress.setVisible(False)
+        layout.addWidget(progress)
+        status_lbl = QLabel("")
+        status_lbl.setWordWrap(True)
+        layout.addWidget(status_lbl)
+
+        # --- Buttons ---
+        btn_row = QHBoxLayout()
+        btn_dl = QPushButton("Download Models")
+        btn_local = QPushButton("Browse Local Files")
+        btn_quit = QPushButton("Quit")
+        btn_row.addWidget(btn_dl)
+        btn_row.addWidget(btn_local)
+        btn_row.addWidget(btn_quit)
+        layout.addLayout(btn_row)
+
+        # Tip + manual download links
+        tip = QLabel("Tip: If auto-download fails, download models manually and use \"Browse Local Files\".")
+        tip.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(tip)
+        links = QLabel(
+            '● <a href="https://hf-mirror.com/Systran/faster-whisper-small">'
+            'faster-whisper-small</a> (China mainland mirror) &nbsp;|&nbsp; '
+            '<a href="https://huggingface.co/Systran/faster-whisper-small">'
+            'faster-whisper-small</a> (official)<br>'
+            '● <a href="https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh">'
+            'opus-mt-en-zh</a> (China mainland mirror) &nbsp;|&nbsp; '
+            '<a href="https://huggingface.co/Helsinki-NLP/opus-mt-en-zh">'
+            'opus-mt-en-zh</a> (official)'
+        )
+        links.setOpenExternalLinks(True)
+        links.setStyleSheet("color: #888; font-size: 10px;")
+        layout.addWidget(links)
+
+        # --- Download worker thread ---
+        class _DownloadWorker(QThread):
+            progress_signal = _pyqtSignal(int, str)  # percent, status text
+            finished_signal = _pyqtSignal(bool, str)  # success, message
+
+            def __init__(self, target_dir):
+                super().__init__()
+                self.target_dir = target_dir
+
+            def run(self):
+                import urllib.request as _req, traceback
+                os.makedirs(self.target_dir, exist_ok=True)
+
+                # ModelScope CDN — direct URLs, no library dependency.
+                # Works reliably in both dev and frozen (PyInstaller) modes.
+                MS_CDN = "https://www.modelscope.cn/models/{repo}/resolve/master/{file}"
+                whisper_files = {
+                    "Systran/faster-whisper-small": [
+                        "model.bin", "config.json", "tokenizer.json", "vocabulary.txt"
+                    ],
+                    "Helsinki-NLP/opus-mt-en-zh": [
+                        "pytorch_model.bin", "config.json", "tokenizer_config.json",
+                        "vocab.json", "source.spm", "target.spm", "generation_config.json",
+                    ],
+                }
+                target_subdirs = {
+                    "Systran/faster-whisper-small": "whisper-small",
+                    "Helsinki-NLP/opus-mt-en-zh": "opus-mt-en-zh",
+                }
+                all_files = []
+                for repo, files in whisper_files.items():
+                    sub = target_subdirs[repo]
+                    for fn in files:
+                        all_files.append((repo, fn, os.path.join(self.target_dir, sub, fn)))
+
+                fail = []
+                total = len(all_files)
+                for i, (repo, fn, dest) in enumerate(all_files):
+                    pct = int(5 + (i / total) * 90)
+                    self.progress_signal.emit(pct, f"Downloading {repo.split('/')[-1]}/{fn}...")
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    url = MS_CDN.format(repo=repo, file=fn)
+                    try:
+                        _req.urlretrieve(url, dest)
+                    except Exception as e:
+                        fail.append(f"{repo}/{fn}: {e}")
+
+                if fail:
+                    self.finished_signal.emit(False,
+                        f"Download failed for {len(fail)}/{total} files:\n"
+                        + "\n".join(fail[:5]) + "\n\n"
+                        "Please download models manually:\n\n"
+                        "ASR: faster-whisper-small (~487 MB)\n"
+                        "  https://hf-mirror.com/Systran/faster-whisper-small  (China mainland mirror)\n"
+                        "  https://huggingface.co/Systran/faster-whisper-small  (official)\n\n"
+                        "Translation: opus-mt-en-zh (~312 MB)\n"
+                        "  https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh  (China mainland mirror)\n"
+                        "  https://huggingface.co/Helsinki-NLP/opus-mt-en-zh  (official)")
+                    return
+                self.progress_signal.emit(100, "All models downloaded successfully!")
+                self.finished_signal.emit(True, "")
+
+        worker = None
+        timeout_timer = None
+        fake_progress_timer = None
+
+        def _start_fake_progress():
+            """Smooth fake progress ~1 min. ASR 30s (5→45%), pause, TL 25s (50→95%), final ~3s (95→99%)."""
+            nonlocal fake_progress_timer
+            elapsed = 0
+            def _tick():
+                nonlocal elapsed
+                elapsed += 0.1
+                if elapsed < 30:
+                    pct = int(5 + (elapsed / 30) * 40)  # 5% → 45%
+                    status_lbl.setText(f"Downloading whisper-small (~487 MB)... ({int(elapsed)}s)")
+                elif elapsed < 33:
+                    pct = 45
+                    status_lbl.setText("whisper-small downloaded. Preparing translation model...")
+                elif elapsed < 58:
+                    pct = int(50 + ((elapsed - 33) / 25) * 45)  # 50% → 95%
+                    status_lbl.setText(f"Downloading opus-mt-en-zh (~312 MB)... ({int(elapsed - 33)}s)")
+                elif elapsed < 60:
+                    pct = int(95 + ((elapsed - 58) / 2) * 4)  # 95% → 99%
+                    status_lbl.setText("Finalizing...")
+                else:
+                    # Hold at 99% — wait for real download to finish
+                    fake_progress_timer.stop()
+                    return
+                progress.setValue(min(pct, 99))
+            fake_progress_timer = QTimer(dlg)
+            fake_progress_timer.timeout.connect(_tick)
+            fake_progress_timer.start(100)
+
+        def _stop_fake_progress(pct, msg):
+            nonlocal fake_progress_timer
+            if fake_progress_timer:
+                fake_progress_timer.stop()
+                fake_progress_timer = None
+            progress.setValue(pct)
+            status_lbl.setText(msg)
+
+        def _do_download():
+            nonlocal worker, timeout_timer
+            target = dl_edit.text().strip()
+            if not target:
+                QMessageBox.warning(dlg, "Error", "Please choose a download folder.")
+                return
+            os.makedirs(target, exist_ok=True)
+
+            # Save config
+            self.cfg["asr"]["model_size"] = os.path.join(target, "whisper-small")
+            self.cfg["translate"]["model_path"] = target
+            save_config(self.cfg)
+
+            # Start download in background + fake progress animation
+            btn_dl.setEnabled(False)
+            btn_local.setEnabled(False)
+            progress.setVisible(True)
+            _start_fake_progress()
+            worker = _DownloadWorker(target)
+            worker.finished_signal.connect(lambda ok, msg: _on_dl_done(ok, msg))
+            worker.start()
+
+            # Auto-timeout after 10 minutes
+            def _on_timeout():
+                if worker and worker.isRunning():
+                    worker.terminate()
+                    worker.wait()
+                    _on_dl_done(False,
+                    "Download timed out after 10 minutes.\n\n"
+                    "Please download models manually:\n\n"
+                    "ASR: faster-whisper-small (~487 MB)\n"
+                    "  https://hf-mirror.com/Systran/faster-whisper-small  (China mainland mirror)\n"
+                    "  https://huggingface.co/Systran/faster-whisper-small  (official)\n\n"
+                    "Translation: opus-mt-en-zh (~312 MB)\n"
+                    "  https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh  (China mainland mirror)\n"
+                    "  https://huggingface.co/Helsinki-NLP/opus-mt-en-zh  (official)")
+            timeout_timer = QTimer(dlg)
+            timeout_timer.setSingleShot(True)
+            timeout_timer.timeout.connect(_on_timeout)
+            timeout_timer.start(600000)  # 10 minutes
+
+        def _on_dl_done(success, message):
+            nonlocal timeout_timer, fake_progress_timer
+            if timeout_timer:
+                timeout_timer.stop()
+            if fake_progress_timer:
+                fake_progress_timer.stop()
+            progress.setValue(100 if success else 0)
+            btn_dl.setEnabled(True)
+            btn_local.setEnabled(True)
+            if success:
+                dlg.accept()
+                self._restart_app()
+            else:
+                progress.setVisible(False)
+                err_msg = QMessageBox(dlg)
+                err_msg.setWindowTitle("Download Failed")
+                err_msg.setIcon(QMessageBox.Icon.Warning)
+                err_msg.setTextFormat(Qt.TextFormat.RichText)
+                # Convert plain URLs to clickable HTML links
+                html = message.replace("\n", "<br>")
+                html = html.replace(
+                    "https://hf-mirror.com/Systran/faster-whisper-small",
+                    '<a href="https://hf-mirror.com/Systran/faster-whisper-small">https://hf-mirror.com/Systran/faster-whisper-small</a>')
+                html = html.replace(
+                    "https://huggingface.co/Systran/faster-whisper-small",
+                    '<a href="https://huggingface.co/Systran/faster-whisper-small">https://huggingface.co/Systran/faster-whisper-small</a>')
+                html = html.replace(
+                    "https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh",
+                    '<a href="https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh">https://hf-mirror.com/Helsinki-NLP/opus-mt-en-zh</a>')
+                html = html.replace(
+                    "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh",
+                    '<a href="https://huggingface.co/Helsinki-NLP/opus-mt-en-zh">https://huggingface.co/Helsinki-NLP/opus-mt-en-zh</a>')
+                err_msg.setText(html)
+                err_msg.exec()
+
+        def _do_browse():
+            path = QFileDialog.getExistingDirectory(dlg, "Select folder containing model files")
+            if not path:
+                return
+            # Try to find whisper-small: in path itself or path/whisper-small
+            wp = path if os.path.isfile(os.path.join(path, "model.bin")) else os.path.join(path, "whisper-small")
+            w_ok = os.path.isdir(wp) and os.path.isfile(os.path.join(wp, "model.bin"))
+            # Try to find opus-mt-en-zh: in path, path/opus-mt-en-zh, or path itself as parent
+            op_candidates = [
+                os.path.join(path, "opus-mt-en-zh"),
+                path,
+                os.path.join(path, "opus-mt-en-zh-ct2"),
+            ]
+            op = None
+            for c in op_candidates:
+                if os.path.isdir(c) and (
+                    os.path.isfile(os.path.join(c, "pytorch_model.bin")) or
+                    os.path.isfile(os.path.join(c, "model.safetensors")) or
+                    os.path.isfile(os.path.join(c, "model.bin"))
+                ):
+                    op = c
+                    break
+            o_ok = op is not None
+            if w_ok and o_ok:
+                self.cfg["asr"]["model_size"] = wp
+                self.cfg["translate"]["model_path"] = op
+                save_config(self.cfg)
+                dlg.accept()
+                QTimer.singleShot(300, self._restart_app)
+            else:
+                missing = []
+                if not w_ok: missing.append("whisper-small/  (with model.bin)")
+                if not o_ok: missing.append("opus-mt-en-zh/  (with pytorch_model.bin)")
+                QMessageBox.warning(dlg, "Not Found",
+                    f"Could not find model files in:\n{path}\n\n"
+                    "Missing:\n  " + "\n  ".join(missing))
+
+        btn_dl.clicked.connect(_do_download)
+        btn_local.clicked.connect(_do_browse)
+        btn_quit.clicked.connect(dlg.reject)
+
+        dlg.exec()
 
     @staticmethod
     def _find_models_dir():
@@ -292,8 +668,11 @@ class App:
             save_config(self.cfg)
 
     def start(self):
-        self.pipeline.start()
-        logger.info("Ready. Speak into your microphone.")
+        if hasattr(self, 'pipeline') and self.pipeline is not None:
+            self.pipeline.start()
+            logger.info("Ready. Speak into your microphone.")
+        else:
+            logger.info("Models not loaded — pipeline not started.")
         # Background update check after 5s
         QTimer.singleShot(5000, lambda: check_for_updates(
             on_result=lambda ver: self._on_update_available(ver)))
@@ -314,11 +693,26 @@ class App:
             f"Visit GitHub to download.")
 
     def _quit(self):
-        if hasattr(self, 'pipeline'):
+        if hasattr(self, 'pipeline') and self.pipeline is not None:
             self.pipeline.stop()
         if hasattr(self, 'hotkeys'):
             self.hotkeys.unregister()
         self.app.quit()
+
+    def _restart_app(self):
+        """Quit and relaunch EchoCap (no terminal window)."""
+        if getattr(sys, 'frozen', False):
+            os.startfile(sys.executable)
+        else:
+            import subprocess
+            python = sys.executable
+            script = os.path.join(BASE_DIR, "main.py")
+            # CREATE_NO_WINDOW flag to suppress terminal popup
+            subprocess.Popen(
+                [python, script],
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            )
+        self._quit()
 
     def _show_about(self):
         dlg = AboutDialog()

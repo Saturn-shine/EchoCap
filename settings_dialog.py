@@ -177,6 +177,9 @@ class ASRTab(QGroupBox):
 
         self._model_row = _PathRow(cfg["asr"].get("model_size", ""))
         layout.addRow("Model path:", self._model_row)
+        note = QLabel("Changes require restart to take effect.")
+        note.setStyleSheet("color: #888; font-size: 10px; padding-left: 4px;")
+        layout.addRow(note)
 
         self._device = QComboBox()
         self._device.addItems(["cuda", "cpu"])
@@ -228,6 +231,9 @@ class TranslateTab(QGroupBox):
 
         self._model_row = _PathRow(cfg["translate"].get("model_path", ""))
         layout.addRow("Model path:", self._model_row)
+        note = QLabel("Changes require restart to take effect.")
+        note.setStyleSheet("color: #888; font-size: 10px; padding-left: 4px;")
+        layout.addRow(note)
 
         note = QLabel(
             "Note: Language selection is not yet functional.\n"

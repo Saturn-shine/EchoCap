@@ -54,9 +54,10 @@ DEFAULT_CONFIG = {
         "obs_mode": "off",
         "theme": "Dark Gold",
         "obs_color": "#00FF00",
-        "text_align": "center",
+        "text_align": "left",
         "auto_start": False,
         "minimal_mode": False,
+        "vu_meter_enabled": True,
     },
     "hotkeys": {
         "pause": "Ctrl+Shift+P",

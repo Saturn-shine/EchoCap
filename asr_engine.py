@@ -105,7 +105,7 @@ class ASREngine:
     # ------------------------------------------------------------------
 
     def transcribe(self, audio: np.ndarray) -> str:
-        """Transcribe a float32 numpy audio array to English text."""
+        """Transcribe audio. On CUDA errors, auto-fallback to CPU."""
         if not self._loaded:
             raise RuntimeError("Model not loaded. Call load() first.")
         if audio is None or len(audio) < 160:
@@ -113,20 +113,31 @@ class ASREngine:
 
         audio = np.asarray(audio, dtype=np.float32).ravel()
 
-        segments, _info = self._model.transcribe(
-            audio,
-            beam_size=1,
-            best_of=1,
-            language="en",
-            vad_filter=False,
-            without_timestamps=True,
-            condition_on_previous_text=False,
-        )
-
-        texts = []
-        for seg in segments:
-            text = seg.text.strip()
-            if text:
-                texts.append(text)
-
-        return " ".join(texts)
+        for attempt in range(2):
+            try:
+                segments, _info = self._model.transcribe(
+                    audio,
+                    beam_size=1, best_of=1, language="en",
+                    vad_filter=False, without_timestamps=True,
+                    condition_on_previous_text=False,
+                )
+                texts = []
+                for seg in segments:
+                    text = seg.text.strip()
+                    if text:
+                        texts.append(text)
+                return " ".join(texts)
+            except RuntimeError as e:
+                msg = str(e).lower()
+                if ("cublas" in msg or "cuda" in msg) and attempt == 0:
+                    logger.warning("CUDA error, reloading on CPU: %s", e)
+                    self.device = "cpu"
+                    self.compute_type = "auto"
+                    self._loaded = False
+                    self._model = None
+                    try:
+                        self.load()
+                    except Exception:
+                        return ""
+                else:
+                    raise
