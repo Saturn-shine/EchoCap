@@ -55,20 +55,8 @@
 ## 🎬 效果预览
 
 <p align="center">
-  <em>（截图占位 — 运行 EchoCap 后按 Ctrl+Shift+C 复制字幕，截图替换此处）</em>
+  <img src="https://raw.githubusercontent.com/Saturn-shine/EchoCap/main/assets/demo.png" alt="EchoCap Demo" width="720" />
 </p>
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  🎤 EchoCap                                       — □ ✕  │
-│─────────────────────────────────────────────────────────│
-│                                                         │
-│  This is a real-time caption demo.                      │
-│  这是一个实时字幕演示。                                    │
-│                                                         │
-│  [━━━━━━━━━━━━━━━━━━━━━━━━━] 70%  🎬  ⚙  🎨  ✕        │
-└─────────────────────────────────────────────────────────┘
-```
 
 ## ⚡ 快速开始
 
@@ -283,20 +271,8 @@ The market has no shortage of caption tools. The problem:
 ## 🎬 Preview
 
 <p align="center">
-  <em>(Screenshot placeholder — run EchoCap, copy captions with Ctrl+Shift+C, and replace this)</em>
+  <img src="https://raw.githubusercontent.com/Saturn-shine/EchoCap/main/assets/demo.png" alt="EchoCap Demo" width="720" />
 </p>
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  🎤 EchoCap                                       — □ ✕  │
-│─────────────────────────────────────────────────────────│
-│                                                         │
-│  This is a real-time caption demo.                      │
-│  这是一个实时字幕演示。                                    │
-│                                                         │
-│  [━━━━━━━━━━━━━━━━━━━━━━━━━] 70%  🎬  ⚙  🎨  ✕        │
-└─────────────────────────────────────────────────────────┘
-```
 
 ## ⚡ Quick Start
 
